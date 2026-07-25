@@ -21,11 +21,13 @@ logger = logging
 
 
 def get_cmodel(rank):
-    checkpoint = torch.load('wavlm/WavLM-Large.pt')
+    checkpoint = torch.load('wavlm/WavLM-Large.pt', map_location='cpu')
     cfg = WavLMConfig(checkpoint['cfg'])
-    cmodel = WavLM(cfg).cuda(rank)
+    cmodel = WavLM(cfg)
     cmodel.load_state_dict(checkpoint['model'])
     cmodel.eval()
+    if torch.cuda.is_available():
+        cmodel = cmodel.cuda(rank)
     return cmodel
     
     

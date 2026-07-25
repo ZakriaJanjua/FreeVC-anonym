@@ -4,3 +4,7 @@ dataset
 logs
 outputs
 hifigan/generator_v1
+freevc_venv
+wavlm
+checkpoints
+

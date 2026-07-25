@@ -11,6 +11,7 @@ from models import SynthesizerTrn
 from mel_processing import mel_spectrogram_torch
 from wavlm import WavLM, WavLMConfig
 from speaker_encoder.voice_encoder import SpeakerEncoder
+from atc_distortion import apply_atc_distortion
 import logging
 logging.getLogger('numba').setLevel(logging.WARNING)
 
@@ -23,7 +24,9 @@ if __name__ == "__main__":
     parser.add_argument("--outdir", type=str, default="output/freevc", help="path to output dir")
     parser.add_argument("--use_timestamp", default=False, action="store_true")
     args = parser.parse_args()
-    
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     os.makedirs(args.outdir, exist_ok=True)
     hps = utils.get_hparams_from_file(args.hpfile)
 
@@ -31,7 +34,7 @@ if __name__ == "__main__":
     net_g = SynthesizerTrn(
         hps.data.filter_length // 2 + 1,
         hps.train.segment_size // hps.data.hop_length,
-        **hps.model).cuda()
+        **hps.model).to(device)
     _ = net_g.eval()
     print("Loading checkpoint...")
     _ = utils.load_checkpoint(args.ptfile, net_g, None, True)
@@ -61,9 +64,9 @@ if __name__ == "__main__":
             wav_tgt, _ = librosa.effects.trim(wav_tgt, top_db=20)
             if hps.model.use_spk:
                 g_tgt = smodel.embed_utterance(wav_tgt)
-                g_tgt = torch.from_numpy(g_tgt).unsqueeze(0).cuda()
+                g_tgt = torch.from_numpy(g_tgt).unsqueeze(0).to(device)
             else:
-                wav_tgt = torch.from_numpy(wav_tgt).unsqueeze(0).cuda()
+                wav_tgt = torch.from_numpy(wav_tgt).unsqueeze(0).to(device)
                 mel_tgt = mel_spectrogram_torch(
                     wav_tgt, 
                     hps.data.filter_length,
@@ -76,7 +79,7 @@ if __name__ == "__main__":
                 )
             # src
             wav_src, _ = librosa.load(src, sr=hps.data.sampling_rate)
-            wav_src = torch.from_numpy(wav_src).unsqueeze(0).cuda()
+            wav_src = torch.from_numpy(wav_src).unsqueeze(0).to(device)
             c = utils.get_content(cmodel, wav_src)
             
             if hps.model.use_spk:
@@ -84,6 +87,7 @@ if __name__ == "__main__":
             else:
                 audio = net_g.infer(c, mel=mel_tgt)
             audio = audio[0][0].data.cpu().float().numpy()
+            audio = apply_atc_distortion(audio, hps.data.sampling_rate)
             if args.use_timestamp:
                 timestamp = time.strftime("%m-%d_%H-%M", time.localtime())
                 write(os.path.join(args.outdir, "{}.wav".format(timestamp+"_"+title)), hps.data.sampling_rate, audio)
